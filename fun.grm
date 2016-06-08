@@ -1,0 +1,118 @@
+val ctr = ref (0);
+structure A = Absyn
+
+%%
+
+%pos ErrorMsg.pos
+%verbose
+%term EOF 
+| INT of int
+| ID of string
+| COMMA | SEMICOLON | COLON
+| LPAREN | RPAREN  
+| ARROW | FUN | IN | LET
+| ELSE | THEN | IF
+| ASSIGN | BANG | REF
+| DO | WHILE 
+| OR | NOT | AND
+| GT | EQ | LT
+| PROJ of int
+| TIMES | MINUS | PLUS
+| CALL | UMINUS | ITE | DW | LETIN | IFTHEN 
+| EX 
+
+
+%nonterm prog of A.prog | fundec of A.fundec | fundecs of A.fundec list | func of A.func
+| exp of A.exp  | posexp of A.exp | tp of A.tp | explist of A.exp list
+| tplist of A.tp list
+
+%eop EOF %noshift EOF
+
+ 
+%nonassoc EX
+%left IFTHEN 
+%left LETIN
+%left SEMICOLON
+%left ELSE DW
+%nonassoc ASSIGN 
+%nonassoc COLON
+%left AND OR
+%left NOT
+%nonassoc EQ LT
+%left PLUS MINUS
+%left TIMES
+%left ARROW
+%left PROJ REF CALL BANG UMINUS
+%left LPAREN
+%start prog
+%name Fun
+
+
+%%
+
+prog: fundecs					(fundecs)
+   				
+
+fundecs: fundec fundecs			   (fundec::fundecs)
+	| fundec                           ([fundec])
+
+
+fundec: func				((funcleft,funcright), func)
+
+func: FUN ID LPAREN ID COLON tp RPAREN COLON tp EQ posexp    (Symbol.symbol ID1, Symbol.symbol ID2,tp1,tp2,posexp)
+
+posexp: exp                             (A.Pos((expleft,expright), exp))
+
+tp: 
+   ID						( if ID = "int" 
+						then A.Inttp 
+						else (ErrorMsg.error (( IDleft, IDright ), "Int Expected") ; A.Inttp))
+  | LPAREN tp RPAREN				(tp)
+  | LT tplist GT				(A.Tupletp(tplist))
+  | LT GT                                   	(A.Tupletp([]))
+  | tp ARROW tp					(A.Arrowtp(tp1,tp2))
+  | tp REF					(A.Reftp(tp))
+
+
+tplist: tp 					([tp])
+      | tplist COMMA tp				(tplist@[tp])
+
+exp:
+    LPAREN exp RPAREN				%prec EX(exp)
+   | ID						(A.Id(Symbol.symbol ID))
+   | INT					(A.Int(INT))
+  
+   | MINUS exp	           			%prec UMINUS(A.Op(A.Sub, [A.Int(0),exp]))
+   | NOT exp					(A.If(exp, A.Int(0), A.Int(1)))
+   | BANG exp					(A.Op(A.Get, [exp]))
+   | PROJ exp					(A.Proj(PROJ,exp))
+   | REF exp                                    (A.Op(A.Ref, [exp]))
+   
+
+   | exp TIMES exp				(A.Op(A.Mul, [exp1, exp2]))
+   | exp PLUS exp				(A.Op(A.Add, [exp1, exp2]))
+   | exp MINUS exp                              (A.Op(A.Sub, [exp1, exp2]))
+  
+   | exp EQ exp					(A.Op(A.Eq, [exp1, exp2]))
+   | exp LT exp					(A.Op(A.LT, [exp1, exp2]))
+   | exp ASSIGN exp				(A.Op(A.Set, [exp1, exp2]))
+   | exp AND exp				(A.If(exp1, A.If(exp2, A.Int(1), A.Int(0)), A.Int(0)))
+   | exp OR exp					(A.If(exp1, A.Int(1),  A.If(exp2, A.Int(1), A.Int(0))))
+
+   | LT explist GT				(A.Tuple(explist))
+   | LT GT					(A.Tuple([]))
+   | exp LPAREN exp RPAREN                      %prec CALL (A.Call (exp1,exp2))
+   | exp COLON tp				(A.Constrain(exp,tp))
+  
+   | IF exp THEN exp ELSE exp			(A.If(exp1, exp2, exp3))
+   | IF exp THEN exp 				%prec IFTHEN(A.If(exp1, exp2, A.Tuple([])))
+   
+   | WHILE exp DO exp				%prec DW(A.While(exp1, exp2))
+   | LET ID EQ exp IN exp	                %prec LETIN(A.Let (Symbol.symbol ID,exp1,exp2))
+   | exp SEMICOLON exp				%prec SEMICOLON ((ctr:= !ctr+1); 
+							A.Let (Symbol.symbol ("$id" ^ (Int.toString(!ctr))),exp1,exp2))
+ 
+explist: exp					([exp])
+       | explist COMMA exp			(explist@[exp])
+
+
